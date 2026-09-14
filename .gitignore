@@ -1,0 +1,31 @@
+# Datasets
+data/raw/*
+data/reference/*
+data/final/*
+
+# Keep empty folder structure
+!data/raw/.gitkeep
+!data/reference/.gitkeep
+!data/final/.gitkeep
+
+# Results
+results/*
+!results/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
