@@ -3,7 +3,7 @@ for a whole split (train or test), trial by trial.
 """
 
 from typing import List, Tuple
-
+import hashlib
 import numpy as np
 import pandas as pd
 
@@ -31,7 +31,10 @@ def build_condition(df_split: pd.DataFrame, trial_assignment: pd.DataFrame,
         tremor_status = int(assignment.loc[key, "tremor_status"])
 
         # Per-trial seed: reproducible, independent of groupby iteration order.
-        trial_seed = abs(hash((seed_offset, key[0], key[1], key[2]))) % (2 ** 32)
+        seed_string = f"{seed_offset}|{key[0]}|{key[1]}|{key[2]}"
+        trial_seed = int(hashlib.sha256(seed_string.encode("utf-8")).hexdigest()[:8],
+    16
+)
         rng = np.random.default_rng(trial_seed)
 
         if tremor_status == 1:
@@ -48,7 +51,7 @@ def build_condition(df_split: pd.DataFrame, trial_assignment: pd.DataFrame,
         out_rows.append(trial_df)
 
         meta_rows.append({
-            "user_id": key[0], "session_id": key[1], "trial_id": key[2],
+            "participant_id": key[0], "session_id": key[1], "trial_id": key[2],
             "task": trial_df["task"].iloc[0],
             "tremor_status": tremor_status,
             "tremor_frequency_hz": freq if freq is not None else np.nan,

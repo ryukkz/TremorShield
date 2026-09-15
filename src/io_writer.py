@@ -34,6 +34,6 @@ def save_outputs(outdir: str,
         print(f"[save_outputs] wrote {path} ({len(d):,} rows)")
 
     config_path = os.path.join(outdir, "run_config.json")
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(cfg.__dict__, f, indent=2)
     print(f"[save_outputs] wrote {config_path}")

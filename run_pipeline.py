@@ -31,7 +31,7 @@ from src.io_writer import save_outputs
 
 def main():
     parser = argparse.ArgumentParser(description="TREMORSHIELD synthetic tremor injection")
-    parser.add_argument("--input", default="data/raw/all_cleaned_data.csv")
+    parser.add_argument("--input", default="data/raw/all_participants_cleaned.csv")
     parser.add_argument("--outdir", default="data/final")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-frac", type=float, default=0.80)
@@ -54,8 +54,8 @@ def main():
     train_users, test_users, participant_split = split_participants(
         df, cfg.seed, cfg.train_frac
     )
-    df_train = df[df.user_id.isin(train_users)]
-    df_test = df[df.user_id.isin(test_users)]
+    df_train = df[df.participant_id.isin(train_users)]
+    df_test = df[df.participant_id.isin(test_users)]
 
     # 4-5a. TRAIN: 70/30 tremor/clean split at trial level
     train_assignment = split_training_trials(df_train, cfg.seed, cfg.train_tremor_frac)

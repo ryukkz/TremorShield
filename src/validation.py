@@ -50,7 +50,7 @@ def validate_dataset(train_users: set, test_users: set,
         num = d.select_dtypes(include=[np.number])
         n_missing = num.isna().sum().sum()
         n_inf = np.isinf(num.to_numpy(dtype=float, na_value=0.0)).sum()
-        n_dup = d.duplicated(subset=["user_id", "session_id", "trial_id", "elapsed_sec", "tremor_status"]).sum()
+        n_dup = d.duplicated(subset=["participant_id", "session_id", "trial_id", "elapsed_sec", "tremor_status"]).sum()
         print(f"[{name}] missing(numeric)={n_missing:,}  inf={n_inf:,}  "
               f"duplicate rows={n_dup:,}")
 
@@ -66,7 +66,7 @@ def validate_dataset(train_users: set, test_users: set,
     print("\nTask distribution — test (distinct trials):")
     print(test_meta.drop_duplicates(TRIAL_KEYS)["task"].value_counts().to_string())
 
-    _make_validation_plots(train_combined, cfg, outdir)
+    #_make_validation_plots(train_combined, cfg, outdir)
 
 
 def _make_validation_plots(train_combined: pd.DataFrame, cfg: TremorConfig, outdir: str) -> None:
@@ -94,53 +94,67 @@ def _make_validation_plots(train_combined: pd.DataFrame, cfg: TremorConfig, outd
     fig, axes = plt.subplots(len(cfg.frequencies_hz), 3, figsize=(15, 4 * len(cfg.frequencies_hz)))
 
     for row_i, freq in enumerate(cfg.frequencies_hz):
-        sub = tremor_rows[tremor_rows.tremor_frequency_hz == freq]
-        if sub.empty:
-            continue
-        move_counts = (sub[sub.event == "move"]
-                       .groupby(TRIAL_KEYS).size().sort_values(ascending=False))
-        if move_counts.empty:
-            continue
-        key = dict(zip(TRIAL_KEYS, move_counts.index[0]))
-        trial = sub[(sub.user_id == key["user_id"]) &
-                    (sub.session_id == key["session_id"]) &
-                    (sub.trial_id == key["trial_id"])].sort_values("elapsed_sec")
-        move = trial[trial.event == "move"]
+            sub = tremor_rows[tremor_rows.tremor_frequency_hz == freq]
+            if sub.empty:
+                  continue
+            move_counts = (sub[sub.event == "move"]
+                        .groupby(TRIAL_KEYS).size().sort_values(ascending=False))
+            if move_counts.empty:
+                  continue
+            key = dict(zip(TRIAL_KEYS, move_counts.index[0]))
+            trial = sub[(sub.participant_id == key["participant_id"]) &
+                        (sub.session_id == key["session_id"]) &
+                        (sub.trial_id == key["trial_id"])].sort_values("elapsed_sec")
+            move = trial[trial.event == "move"]
 
-        t = move["elapsed_sec"].to_numpy()
-        res_x = move["observed_x"].to_numpy() - move["ground_truth_x"].to_numpy()
-        res_y = move["observed_y"].to_numpy() - move["ground_truth_y"].to_numpy()
-        res_mag = np.sqrt(res_x ** 2 + res_y ** 2)
+            t = move["elapsed_sec"].to_numpy()
+            W = move["screen_width"].to_numpy(dtype=float)
+            H = move["screen_height"].to_numpy(dtype=float)
 
-        ax0, ax1, ax2 = axes[row_i]
+            res_x_norm = (
+            move["observed_x"].to_numpy()
+            - move["ground_truth_x"].to_numpy()
+            )
 
-        ax0.plot(move["ground_truth_x"], move["ground_truth_y"], label="ground truth", lw=1.5)
-        ax0.plot(move["observed_x"], move["observed_y"], label="observed (tremor)", lw=0.8, alpha=0.8)
-        ax0.set_title(f"{freq} Hz — trajectory ({key['user_id']}, trial {key['trial_id']}, "
-                      f"n={len(move)})")
-        ax0.legend(fontsize=8)
-        ax0.set_aspect("equal", adjustable="datalim")
+            res_y_norm = (
+            move["observed_y"].to_numpy()
+            - move["ground_truth_y"].to_numpy()
+            )
 
-        ax1.plot(t, res_mag, lw=0.8)
-        ax1.set_title(f"{freq} Hz — residual magnitude (px)")
-        ax1.set_xlabel("elapsed_sec")
+            res_x = res_x_norm * W
+            res_y = res_y_norm * H
 
-        median_dt = np.median(np.diff(t)[np.diff(t) > 0]) if len(t) > 2 else 1.0 / 60.0
-        fs = min(1.0 / median_dt, 4 * max(cfg.frequencies_hz))
-        fs = max(fs, 4 * max(cfg.frequencies_hz))  # ensure Nyquist >= 2x max freq
-        t_uniform = np.arange(t.min(), t.max(), 1.0 / fs)
-        if len(t_uniform) > 8:
-            res_x_uniform = np.interp(t_uniform, t, res_x)  # signed! see docstring
-            f_psd, pxx = welch(res_x_uniform - res_x_uniform.mean(), fs=fs,
-                                nperseg=min(256, len(res_x_uniform)))
-            ax2.semilogy(f_psd, pxx)
-        else:
-            ax2.text(0.5, 0.5, "too few samples\nfor a reliable PSD",
-                     ha="center", va="center", transform=ax2.transAxes)
-        ax2.axvline(freq, color="red", linestyle="--", label=f"target {freq} Hz")
-        ax2.set_title(f"{freq} Hz — PSD of residual (resampled, fs≈{fs:.0f}Hz)")
-        ax2.set_xlabel("Hz")
-        ax2.legend(fontsize=8)
+            res_mag = np.sqrt(res_x**2 + res_y**2)
+
+            ax0, ax1, ax2 = axes[row_i]
+
+            ax0.plot(move["ground_truth_x"], move["ground_truth_y"], label="ground truth", lw=1.5)
+            ax0.plot(move["observed_x"], move["observed_y"], label="observed (tremor)", lw=0.8, alpha=0.8)
+            ax0.set_title(f"{freq} Hz — trajectory ({key['participant_id']}, trial {key['trial_id']}, "
+                        f"n={len(move)})")
+            ax0.legend(fontsize=8)
+            ax0.set_aspect("equal", adjustable="datalim")
+
+            ax1.plot(t, res_mag, lw=0.8)
+            ax1.set_title(f"{freq} Hz — residual magnitude (px)")
+            ax1.set_xlabel("elapsed_sec")
+
+            median_dt = np.median(np.diff(t)[np.diff(t) > 0]) if len(t) > 2 else 1.0 / 60.0
+            fs = min(1.0 / median_dt, 4 * max(cfg.frequencies_hz))
+            fs = max(fs, 4 * max(cfg.frequencies_hz))  # ensure Nyquist >= 2x max freq
+            t_uniform = np.arange(t.min(), t.max(), 1.0 / fs)
+            if len(t_uniform) > 8:
+                  res_x_uniform = np.interp(t_uniform, t, res_x)  # signed! see docstring
+                  f_psd, pxx = welch(res_x_uniform - res_x_uniform.mean(), fs=fs,
+                                    nperseg=min(256, len(res_x_uniform)))
+                  ax2.semilogy(f_psd, pxx)
+            else:
+                  ax2.text(0.5, 0.5, "too few samples\nfor a reliable PSD",
+                        ha="center", va="center", transform=ax2.transAxes)
+            ax2.axvline(freq, color="red", linestyle="--", label=f"target {freq} Hz")
+            ax2.set_title(f"{freq} Hz — PSD of residual (resampled, fs≈{fs:.0f}Hz)")
+            ax2.set_xlabel("Hz")
+            ax2.legend(fontsize=8)
 
     fig.tight_layout()
     out_path = os.path.join(plot_dir, "tremor_frequency_validation.png")

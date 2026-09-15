@@ -20,7 +20,7 @@ def split_participants(df: pd.DataFrame, seed: int,
     Returns (train_users, test_users, participant_split_df).
     """
     rng = np.random.default_rng(seed + 1)  # decorrelate from the rename shuffle
-    users = np.array(sorted(df["user_id"].unique(), key=lambda u: int(u[1:])))
+    users = np.array(sorted(df["participant_id"].unique(), key=lambda u: int(u[1:])))
     shuffled = rng.permutation(users)
 
     n_train = int(round(len(shuffled) * train_frac))
@@ -32,8 +32,8 @@ def split_participants(df: pd.DataFrame, seed: int,
     assert train_users.isdisjoint(test_users), "train/test participant overlap!"
 
     split_df = pd.DataFrame(
-        [{"user_id": u, "split": "train"} for u in sorted(train_users, key=lambda u: int(u[1:]))]
-        + [{"user_id": u, "split": "test"} for u in sorted(test_users, key=lambda u: int(u[1:]))]
+        [{"participant_id": u, "split": "train"} for u in sorted(train_users, key=lambda u: int(u[1:]))]
+        + [{"participant_id": u, "split": "test"} for u in sorted(test_users, key=lambda u: int(u[1:]))]
     )
 
     print(f"[split_participants] {len(train_users)} train / {len(test_users)} "
@@ -69,7 +69,6 @@ def split_training_trials(df_train: pd.DataFrame, seed: int,
 
 def assign_test_trials(df_test: pd.DataFrame, tremor_frac: float = 1.00) -> pd.DataFrame:
     """Choose which TEST trials also get a paired tremor-corrupted rendering.
-
     Test participants are NEVER used for training. By default all test
     trials are rendered both as TEST-A (clean) and TEST-B (tremor), so the
     RF's clean-vs-tremor generalisation gap can be measured on identical

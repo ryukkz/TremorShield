@@ -90,7 +90,7 @@ def generate_tremor(dt: np.ndarray, freq: float, amplitude_px: float,
         r[i] = r[i-1] + theta*(level - r[i-1])*dt[i] + sigma*sqrt(dt[i])*N(0,1)
         r[i] = clip(r[i], OU_MIN, OU_MAX)
     """
-    n = len(dt)
+    n = len(dt) 
     r = np.empty(n, dtype=float)
     r[0] = np.clip(rng.uniform(0.3, 0.9), OU_MIN, OU_MAX)
     theta = 1.0 / OU_TAU_SEC
@@ -110,9 +110,6 @@ def _unit_normals(x: np.ndarray, y: np.ndarray, dt: np.ndarray) -> Tuple[np.ndar
     valid direction, then back-fill any leading gap, then default to
     (0, 1) if the whole trial is stationary).
 
-    NOTE: computed OFFLINE over the whole trial (uses forward *and*
-    backward fill) — appropriate for generating a synthetic dataset but
-    not causal, so do not reuse this as-is in a real-time system.
     """
     n = len(x)
     vx = np.zeros(n)

@@ -12,7 +12,7 @@ def load_data(path: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Input CSV not found: {path}")
 
     df = pd.read_csv(path)
-
+    
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
@@ -28,6 +28,6 @@ def load_data(path: str) -> pd.DataFrame:
             f"{sorted(unexpected_tasks)}. Refusing to proceed silently."
         )
 
-    print(f"[load_data] Loaded {len(df):,} rows, {df['user_id'].nunique()} "
+    print(f"[load_data] Loaded {len(df):,} rows, {df['participant_id'].nunique()} "
           f"participants, {df.shape[1]} columns from {path}")
     return df

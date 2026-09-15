@@ -1,9 +1,5 @@
 """recalculate_features(): derive motion features from OBSERVED coordinates.
 
-Never copies the clean (ground-truth) velocity/acceleration into
-tremor-corrupted rows — everything here is recomputed from observed_x/y
-and the actual dt, with safe handling of divide-by-zero and the first
-sample of each trial (which has no prior sample to derive motion from).
 """
 
 import numpy as np
