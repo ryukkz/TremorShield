@@ -1,7 +1,4 @@
-"""save_outputs(): write all pipeline artifacts to disk.
 
-Never touches the source all_cleaned_data.csv — only writes into outdir.
-"""
 
 import json
 import os

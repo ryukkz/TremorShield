@@ -1,6 +1,3 @@
-"""build_condition(): orchestrate tremor injection + feature recalculation
-for a whole split (train or test), trial by trial.
-"""
 
 from typing import List, Tuple
 import hashlib
@@ -14,12 +11,7 @@ from .features import recalculate_features
 
 def build_condition(df_split: pd.DataFrame, trial_assignment: pd.DataFrame,
                      cfg: TremorConfig, seed_offset: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Given a train or test participant subset and a trial-level
-    tremor/clean assignment (tremor_status 0/1 per trial), inject tremor
-    where required and recompute derived features for every trial.
-
-    Returns (rows_df, metadata_df).
-    """
+   
     assignment = trial_assignment.set_index(TRIAL_KEYS)
 
     out_rows: List[pd.DataFrame] = []

@@ -1,9 +1,4 @@
-"""inject_tremor_into_trial(): apply the tremor model to one trial.
 
-Tremor is added ONLY to rows where event == 'move'. press/release/
-double_click rows keep observed == ground_truth exactly, so discrete
-action locations are never perturbed.
-"""
 
 import numpy as np
 import pandas as pd
@@ -14,10 +9,7 @@ from .tremor_model import generate_tremor, _unit_normals
 def inject_tremor_into_trial(trial_df: pd.DataFrame, freq, amplitude_px, phase,
                               rng: np.random.Generator,
                               tremor_status: int) -> pd.DataFrame:
-    """Add ground_truth_x/y and observed_x/y to one trial's rows.
-
-    freq / amplitude_px / phase are None when tremor_status == 0.
-    """
+    
     trial_df = trial_df.sort_values("elapsed_sec").reset_index(drop=True)
 
     gt_x_norm = trial_df["x_normalized"].to_numpy(dtype=float)

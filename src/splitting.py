@@ -15,10 +15,7 @@ def _trial_table(df: pd.DataFrame) -> pd.DataFrame:
 
 def split_participants(df: pd.DataFrame, seed: int,
                         train_frac: float = 0.80) -> Tuple[set, set, pd.DataFrame]:
-    """Split ANONYMIZED user_ids into train/test sets.
-
-    Returns (train_users, test_users, participant_split_df).
-    """
+   
     rng = np.random.default_rng(seed + 1)  # decorrelate from the rename shuffle
     users = np.array(sorted(df["participant_id"].unique(), key=lambda u: int(u[1:])))
     shuffled = rng.permutation(users)
