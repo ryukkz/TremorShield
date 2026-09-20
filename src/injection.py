@@ -35,7 +35,7 @@ def inject_tremor_into_trial(trial_df: pd.DataFrame, freq, amplitude_px, phase,
         nx, ny = _unit_normals(gt_x_px, gt_y_px, dt)
         s = generate_tremor(dt, freq, amplitude_px, phase, t_local, rng)
 
-        move_mask = (trial_df["event"] == "move").to_numpy()
+        move_mask = trial_df["event"].isin(["move", "press", "release", "double_click"]).to_numpy()
         obs_x_norm[move_mask] = gt_x_norm[move_mask] + s[move_mask] * nx[move_mask]/W[move_mask]
         obs_y_norm[move_mask] = gt_y_norm[move_mask] + s[move_mask] * ny[move_mask]/H[move_mask]
         # obs_x[move_mask] = gt_x[move_mask] + s[move_mask] * nx[move_mask]

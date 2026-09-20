@@ -47,7 +47,7 @@ def trial_spatial_features(trial_df: pd.DataFrame) -> Dict:
     """Compute paired clean-vs-tremor spatial features for one trial.
     Uses 'move' events only (press/release/double_click are discrete
     actions, not part of the continuous trajectory)."""
-    move = trial_df[trial_df.event == "move"].sort_values("elapsed_sec")
+    move = trial_df[trial_df.event == "move"].sort_values("elapsed_sec") #move represents continuous cursor movement.others are discrete events, not part of the continuous trajectory.
     gt_x = move["ground_truth_x"].to_numpy(dtype=float)
     gt_y = move["ground_truth_y"].to_numpy(dtype=float)
     ob_x = move["observed_x"].to_numpy(dtype=float)
@@ -55,19 +55,40 @@ def trial_spatial_features(trial_df: pd.DataFrame) -> Dict:
 
     if len(gt_x) < 3:
         return {"skipped_reason": f"only {len(gt_x)} move samples (<3)"}
+    
+    dev_x_px = (
+    ob_x - gt_x
+) * move["screen_width"].to_numpy(dtype=float)
 
-    dev = np.sqrt((ob_x - gt_x) ** 2 + (ob_y - gt_y) ** 2)
+    dev_y_px = (
+        ob_y - gt_y
+    ) * move["screen_height"].to_numpy(dtype=float)
+    dev = np.sqrt(
+    dev_x_px ** 2 +
+    dev_y_px ** 2
+)
 
-    path_clean = _path_length(gt_x, gt_y)
-    path_tremor = _path_length(ob_x, ob_y)
+    
+    W = move["screen_width"].to_numpy(dtype=float)
+    H = move["screen_height"].to_numpy(dtype=float)
+
+    gt_x_px = gt_x * W
+    gt_y_px = gt_y * H
+
+    ob_x_px = ob_x * W
+    ob_y_px = ob_y * H
+    path_clean = _path_length(gt_x_px, gt_y_px)
+    path_tremor = _path_length(ob_x_px, ob_y_px)
+
+
     path_change_pct = (100.0 * (path_tremor - path_clean) / path_clean
                         if path_clean > 0 else np.nan)
 
-    dc_clean = _direction_changes(gt_x, gt_y)
-    dc_tremor = _direction_changes(ob_x, ob_y)
+    dc_clean = _direction_changes(gt_x_px, gt_y_px)
+    dc_tremor = _direction_changes(ob_x_px, ob_y_px)
 
-    bbox_clean = (float(gt_x.max() - gt_x.min()), float(gt_y.max() - gt_y.min()))
-    bbox_tremor = (float(ob_x.max() - ob_x.min()), float(ob_y.max() - ob_y.min()))
+    bbox_clean = (float(gt_x_px.max() - gt_x_px.min()), float(gt_y_px.max() - gt_y_px.min()))
+    bbox_tremor = (float(ob_x_px.max() - ob_x_px.min()), float(ob_y_px.max() - ob_y_px.min()))
     bbox_area_clean = bbox_clean[0] * bbox_clean[1]
     bbox_area_tremor = bbox_tremor[0] * bbox_tremor[1]
     bbox_change_pct = (100.0 * (bbox_area_tremor - bbox_area_clean) / bbox_area_clean
@@ -86,10 +107,10 @@ def trial_spatial_features(trial_df: pd.DataFrame) -> Dict:
         "direction_changes_clean": dc_clean,
         "direction_changes_tremor": dc_tremor,
         "direction_changes_increase": dc_tremor - dc_clean,
-        "x_std_clean_px": float(gt_x.std()),
-        "x_std_tremor_px": float(ob_x.std()),
-        "y_std_clean_px": float(gt_y.std()),
-        "y_std_tremor_px": float(ob_y.std()),
+        "x_std_clean_px": float(gt_x_px.std()),
+        "x_std_tremor_px": float(ob_x_px.std()),
+        "y_std_clean_px": float(gt_y_px.std()),
+        "y_std_tremor_px": float(ob_y_px.std()),
         "bbox_area_clean_px2": bbox_area_clean,
         "bbox_area_tremor_px2": bbox_area_tremor,
         "bbox_area_change_percent": bbox_change_pct,
@@ -111,7 +132,7 @@ def run_spatial_validation(rows_df: pd.DataFrame, meta_df: pd.DataFrame, outdir:
     skipped = 0
     for _, meta_row in tremor_meta.iterrows():
         key = tuple(meta_row[k] for k in TRIAL_KEYS)
-        trial_df = rows_df[(rows_df.user_id == key[0]) &
+        trial_df = rows_df[(rows_df.participant_id == key[0]) &
                             (rows_df.session_id == key[1]) &
                             (rows_df.trial_id == key[2])]
         if trial_df.empty:
@@ -121,7 +142,7 @@ def run_spatial_validation(rows_df: pd.DataFrame, meta_df: pd.DataFrame, outdir:
             skipped += 1
             continue
         rows.append({
-            "user_id": key[0], "session_id": key[1], "trial_id": key[2],
+            "participant_id": key[0], "session_id": key[1], "trial_id": key[2],
             "task": meta_row.get("task"),
             "tremor_frequency_hz": float(meta_row["tremor_frequency_hz"]),
             "tremor_amplitude_px": float(meta_row["tremor_amplitude_px"]),

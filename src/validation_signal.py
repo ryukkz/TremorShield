@@ -44,58 +44,244 @@ from src.validation_common import (transverse_residual, resample_uniform, welch_
 NYQUIST_MARGIN = 3.0
 
 
+# Frequency-validation search band.
+# We already know the frequency that was intentionally injected.
+# A narrower band prevents unrelated low-frequency voluntary movement
+# from being selected as the "tremor" peak.
+FREQUENCY_SEARCH_HALF_WIDTH_HZ = 1.5
+
+# Minimum number of tremor cycles required for a meaningful
+# frequency-domain validation.
+MIN_TREMOR_CYCLES = 3.0
+
+
 # --------------------------------------------------------------------------
 # Per-trial checks
 # --------------------------------------------------------------------------
 
 def _frequency_check(trial_df: pd.DataFrame, injected_freq: float) -> Dict:
-    """Frequency validation for one tremor trial. Returns a dict with
-    injected/detected frequency and error, or a 'skipped' reason if the
-    trial doesn't have enough move-event samples, or its NATIVE sampling
-    rate can't represent injected_freq in the first place (see
-    NYQUIST_MARGIN above).
+    """Validate recovery of the intentionally injected tremor frequency.
+
+    Frequency validation uses ONLY move events and the signed transverse
+    residual. Press/release/double-click events are not used because they
+    are not guaranteed to provide sufficiently dense temporal sampling.
+
+    A trial is skipped when:
+      1. too few move samples are available,
+      2. native sampling rate is insufficient,
+      3. the movement duration is too short to contain enough tremor cycles,
+      4. no PSD peak can be found near the injected frequency.
+
+    This function does NOT modify the generated tremor or amplitude
+    validation.
     """
-    move = trial_df[trial_df.event == "move"].sort_values("elapsed_sec")
+
+    # ---------------------------------------------------------------
+    # 1. Use only continuous mouse-move samples
+    # ---------------------------------------------------------------
+    
+    if str(trial_df["task"].iloc[0]).lower() == "idle":
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": np.nan,
+            "skipped_reason": "idle task — no intended movement direction",
+        }
+    
+    move = (
+        trial_df[trial_df.event == "move"]
+        .sort_values("elapsed_sec")
+        .copy()
+    )
+
     if len(move) < 16:
-        return {"detected_frequency_hz": np.nan, "frequency_error_hz": np.nan,
-                "frequency_error_percent": np.nan, "fs_used": np.nan, "native_fs_hz": np.nan,
-                "skipped_reason": f"only {len(move)} move samples (<16)"}
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": np.nan,
+            "skipped_reason": f"only {len(move)} move samples (<16)",
+        }
 
+    # ---------------------------------------------------------------
+    # 2. Check native sampling rate
+    # ---------------------------------------------------------------
     t = move["elapsed_sec"].to_numpy(dtype=float)
+
     native_fs = native_sampling_rate(t)
+
+    if not np.isfinite(native_fs):
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": np.nan,
+            "skipped_reason": "native sampling rate could not be estimated",
+        }
+
     if native_fs < NYQUIST_MARGIN * injected_freq:
-        return {"detected_frequency_hz": np.nan, "frequency_error_hz": np.nan,
-                "frequency_error_percent": np.nan, "fs_used": np.nan, "native_fs_hz": native_fs,
-                "skipped_reason": f"native sampling rate {native_fs:.1f} Hz < "
-                                   f"{NYQUIST_MARGIN}x injected {injected_freq} Hz "
-                                   f"— frequency cannot be reliably represented at this "
-                                   f"event density, regardless of resampling"}
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": native_fs,
+            "skipped_reason": (
+                f"native sampling rate {native_fs:.1f} Hz < "
+                f"{NYQUIST_MARGIN}x injected {injected_freq:.1f} Hz "
+                f"— insufficient native sampling"
+            ),
+        }
 
+    # ---------------------------------------------------------------
+    # 3. Check whether the movement lasts long enough
+    #    to contain several cycles of the injected tremor.
+    # ---------------------------------------------------------------
+    duration = float(t[-1] - t[0])
+
+    required_duration = MIN_TREMOR_CYCLES / injected_freq
+
+    if duration < required_duration:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": native_fs,
+            "skipped_reason": (
+                f"movement duration {duration:.3f}s < "
+                f"{required_duration:.3f}s required for "
+                f"{MIN_TREMOR_CYCLES:.0f} tremor cycles"
+            ),
+        }
+
+    # ---------------------------------------------------------------
+    # 4. Calculate SIGNED transverse residual
+    #
+    # This is the important signal for frequency validation.
+    # Do NOT use residual magnitude here.
+    # ---------------------------------------------------------------
     res_t = transverse_residual(move)
-    t_u, res_u, fs = resample_uniform(t, res_t, max_freq_of_interest=10.0)
-    if len(t_u) < 8:
-        return {"detected_frequency_hz": np.nan, "frequency_error_hz": np.nan,
-                "frequency_error_percent": np.nan, "fs_used": fs, "native_fs_hz": native_fs,
-                "skipped_reason": "too few points after resampling"}
 
-    # Search band anchored around the injected frequency (+/- a few Hz)
-    # rather than the whole 1-20 Hz range, now that we know native
-    # sampling supports this frequency — avoids picking up a stronger but
-    # irrelevant peak elsewhere in the spectrum.
-    search_lo = max(1.0, injected_freq - 3.0)
-    search_hi = min(fs / 2 - 0.5, injected_freq + 3.0)
+    valid = np.isfinite(t) & np.isfinite(res_t)
+
+    t = t[valid]
+    res_t = res_t[valid]
+
+    if len(t) < 16:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": np.nan,
+            "native_fs_hz": native_fs,
+            "skipped_reason": "too few valid transverse-residual samples",
+        }
+
+    # ---------------------------------------------------------------
+    # 5. Uniform resampling
+    # ---------------------------------------------------------------
+    t_u, res_u, fs = resample_uniform(
+        t,
+        res_t,
+        max_freq_of_interest=10.0,
+    )
+
+    if len(t_u) < 16:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": fs,
+            "native_fs_hz": native_fs,
+            "skipped_reason": "too few points after resampling",
+        }
+
+    # ---------------------------------------------------------------
+    # 6. Welch PSD
+    # ---------------------------------------------------------------
     freqs, pxx = welch_psd(res_u, fs)
-    detected = dominant_frequency(freqs, pxx, search_lo=search_lo, search_hi=search_hi)
-    if detected is None:
-        return {"detected_frequency_hz": np.nan, "frequency_error_hz": np.nan,
-                "frequency_error_percent": np.nan, "fs_used": fs, "native_fs_hz": native_fs,
-                "skipped_reason": "no PSD peak found in search band"}
 
+    if len(freqs) == 0 or len(pxx) == 0:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": fs,
+            "native_fs_hz": native_fs,
+            "skipped_reason": "empty PSD",
+        }
+
+    # ---------------------------------------------------------------
+    # 7. IMPORTANT:
+    #    Search only around the frequency that was actually injected.
+    #
+    #    Previously this was +/- 3 Hz.
+    #    That allowed unrelated voluntary-movement components to win.
+    # ---------------------------------------------------------------
+    search_lo = max(
+        0.5,
+        injected_freq - FREQUENCY_SEARCH_HALF_WIDTH_HZ
+    )
+
+    search_hi = min(
+        fs / 2.0 - 0.5,
+        injected_freq + FREQUENCY_SEARCH_HALF_WIDTH_HZ
+    )
+
+    if search_hi <= search_lo:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": fs,
+            "native_fs_hz": native_fs,
+            "skipped_reason": "invalid frequency search band",
+        }
+
+    detected = dominant_frequency(
+        freqs,
+        pxx,
+        search_lo=search_lo,
+        search_hi=search_hi,
+    )
+
+    if detected is None:
+        return {
+            "detected_frequency_hz": np.nan,
+            "frequency_error_hz": np.nan,
+            "frequency_error_percent": np.nan,
+            "fs_used": fs,
+            "native_fs_hz": native_fs,
+            "skipped_reason": (
+                f"no PSD peak found within "
+                f"{search_lo:.1f}-{search_hi:.1f} Hz"
+            ),
+        }
+
+    # ---------------------------------------------------------------
+    # 8. Frequency error
+    # ---------------------------------------------------------------
     err_hz = abs(detected - injected_freq)
-    err_pct = 100.0 * err_hz / injected_freq if injected_freq else np.nan
-    return {"detected_frequency_hz": detected, "frequency_error_hz": err_hz,
-            "frequency_error_percent": err_pct, "fs_used": fs, "native_fs_hz": native_fs,
-            "skipped_reason": None}
+
+    err_pct = (
+        100.0 * err_hz / injected_freq
+        if injected_freq
+        else np.nan
+    )
+
+    return {
+        "detected_frequency_hz": float(detected),
+        "frequency_error_hz": float(err_hz),
+        "frequency_error_percent": float(err_pct),
+        "fs_used": float(fs),
+        "native_fs_hz": float(native_fs),
+        "skipped_reason": None,
+    }
 
 
 def _amplitude_check(trial_df: pd.DataFrame) -> Dict:
@@ -107,8 +293,8 @@ def _amplitude_check(trial_df: pd.DataFrame) -> Dict:
     top of this file / README for the distinction.
     """
     move = trial_df[trial_df.event == "move"]
-    res_x = (move["observed_x"] - move["ground_truth_x"]).to_numpy(dtype=float)
-    res_y = (move["observed_y"] - move["ground_truth_y"]).to_numpy(dtype=float)
+    res_x = ((move["observed_x"] - move["ground_truth_x"])*move["screen_width"]).to_numpy(dtype=float)
+    res_y = ((move["observed_y"] - move["ground_truth_y"])*move["screen_height"]).to_numpy(dtype=float)
     mag = np.sqrt(res_x ** 2 + res_y ** 2)
     if len(mag) == 0:
         return {"rms_residual_px": np.nan, "peak_residual_px": np.nan,
@@ -144,7 +330,7 @@ def _envelope_stats(trial_df: pd.DataFrame) -> Dict:
                 "envelope_lag1_autocorr": np.nan}
 
     envelope = np.abs(hilbert(res_u))
-    lag1 = np.corrcoef(envelope[:-1], envelope[1:])[0, 1] if len(envelope) > 2 else np.nan
+    lag1 = np.corrcoef(envelope[:-1], envelope[1:])[0, 1] if len(envelope) > 2 else np.nan #autocorrelation of the envelope, to check if the envelope is smooth or not. If the envelope is smooth, the autocorrelation should be high, if it is not smooth, the autocorrelation should be low.
     return {
         "envelope_mean": float(np.mean(envelope)),
         "envelope_std": float(np.std(envelope)),
@@ -164,25 +350,57 @@ def _clean_preservation_check(rows_df: pd.DataFrame, tol: float = 1e-9) -> Dict:
     clean = rows_df[rows_df.tremor_status == 0]
     if clean.empty:
         return {"n_clean_rows": 0, "n_violations": 0, "max_error_px": 0.0}
-    err = np.sqrt((clean.observed_x - clean.ground_truth_x) ** 2 +
-                  (clean.observed_y - clean.ground_truth_y) ** 2)
+    err = np.sqrt(((clean.observed_x - clean.ground_truth_x)*clean.screen_width) ** 2 +
+                  ((clean.observed_y - clean.ground_truth_y)*clean.screen_height) ** 2)
     violations = int((err > tol).sum())
     return {"n_clean_rows": len(clean), "n_violations": violations,
             "max_error_px": float(err.max())}
 
 
 def _event_preservation_check(rows_df: pd.DataFrame, tol: float = 1e-9) -> Dict:
-    """For tremor trials, press/release/double_click rows must be
-    untouched (observed == ground_truth) — only 'move' rows may differ."""
+   
     tremor_rows = rows_df[rows_df.tremor_status == 1]
+    TREMOR_EVENTS = {"move", "press", "release", "double_click"}
     non_move = tremor_rows[tremor_rows.event != "move"]
-    if non_move.empty:
-        return {"n_non_move_rows_in_tremor_trials": 0, "n_violations": 0, "max_error_px": 0.0}
-    err = np.sqrt((non_move.observed_x - non_move.ground_truth_x) ** 2 +
-                  (non_move.observed_y - non_move.ground_truth_y) ** 2)
-    violations = int((err > tol).sum())
-    return {"n_non_move_rows_in_tremor_trials": len(non_move), "n_violations": violations,
-            "max_error_px": float(err.max())}
+    if tremor_rows.empty:
+        return {
+            "n_expected_tremor_event_rows": 0,
+            "n_other_event_rows": 0,
+            "n_violations": 0,
+            "max_error_px": 0.0,
+        }
+
+    tremor_events = tremor_rows[
+        tremor_rows["event"].isin(TREMOR_EVENTS)
+    ]
+    other_events = tremor_rows[
+        ~tremor_rows["event"].isin(TREMOR_EVENTS)
+    ]
+    if other_events.empty:
+        max_error_px = 0.0
+        violations = 0
+    else:
+        err_x_px = (
+            other_events["observed_x"]
+            - other_events["ground_truth_x"]
+        ) * other_events["screen_width"]
+
+        err_y_px = (
+            other_events["observed_y"]
+            - other_events["ground_truth_y"]
+        ) * other_events["screen_height"]
+
+        err = np.sqrt(err_x_px ** 2 + err_y_px ** 2)
+
+        violations = int((err > tol).sum())
+        max_error_px = float(err.max())
+
+    return {
+        "n_expected_tremor_event_rows": len(tremor_events),
+        "n_other_event_rows": len(other_events),
+        "n_violations": violations,
+        "max_error_px": max_error_px,
+    }
 
 
 def _phase_check(meta_df: pd.DataFrame) -> Dict:
@@ -216,7 +434,7 @@ def run_signal_validation(rows_df: pd.DataFrame, meta_df: pd.DataFrame,
 
     for _, meta_row in tremor_meta.iterrows():
         key = tuple(meta_row[k] for k in TRIAL_KEYS)
-        trial_df = rows_df[(rows_df.user_id == key[0]) &
+        trial_df = rows_df[(rows_df.participant_id == key[0]) &
                             (rows_df.session_id == key[1]) &
                             (rows_df.trial_id == key[2])]
         if trial_df.empty:
@@ -230,13 +448,32 @@ def run_signal_validation(rows_df: pd.DataFrame, meta_df: pd.DataFrame,
         env_result = _envelope_stats(trial_df)
 
         if freq_result.get("skipped_reason"):
-            skipped.append(f"{key}: {freq_result['skipped_reason']}")
+            skipped.append(
+                f"{key}: {freq_result['skipped_reason']}"
+            )
 
+        if freq_result.get("skipped_reason"):
+            frequency_status = "SKIPPED"
+        elif freq_result["frequency_error_hz"] > 1.0:
+            frequency_status = "CHECK"
+        else:
+            frequency_status = "VALIDATED"
+
+        # IMPORTANT:
+        # Always append the trial.
+        # A skipped frequency check does NOT mean the trial
+        # should disappear from trial_level_validation.csv.
         trial_rows.append({
-            "user_id": key[0], "session_id": key[1], "trial_id": key[2],
+            "participant_id": key[0],
+            "session_id": key[1],
+            "trial_id": key[2],
             "task": meta_row.get("task"),
-            "injected_frequency_hz": freq, "configured_amplitude_px": amp,
-            **freq_result, **amp_result, **env_result,
+            "injected_frequency_hz": freq,
+            "configured_amplitude_px": amp,
+            "frequency_validation_status": frequency_status,
+            **freq_result,
+            **amp_result,
+            **env_result,
         })
 
     trial_df_out = pd.DataFrame(trial_rows)
@@ -322,7 +559,7 @@ def _make_signal_plots(rows_df: pd.DataFrame, trial_df_out: pd.DataFrame,
         if counts.empty:
             continue
         key = dict(zip(TRIAL_KEYS, counts.index[0]))
-        trial = sub[(sub.user_id == key["user_id"]) & (sub.session_id == key["session_id"]) &
+        trial = sub[(sub.participant_id == key["participant_id"]) & (sub.session_id == key["session_id"]) &
                     (sub.trial_id == key["trial_id"])]
         move = trial[trial.event == "move"].sort_values("elapsed_sec")
         t = move["elapsed_sec"].to_numpy(dtype=float)

@@ -1,11 +1,4 @@
-"""
-Shared low-level utilities used by BOTH validation_signal.py and
-validation_spatial.py, so the "recover the direction of travel" and
-"resample onto a uniform time grid before doing frequency-domain work"
-logic exists in exactly one place instead of being copy-pasted.
 
-Nothing here writes files or prints summaries — it's pure computation.
-"""
 
 from typing import Optional, Tuple
 

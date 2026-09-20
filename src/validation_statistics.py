@@ -110,14 +110,14 @@ def run_statistical_comparison(spatial_df: pd.DataFrame,
               "(no RobustPDX data / no spatial data) — see robustpdx_comparison.csv")
         return note
 
-    groups = sorted(robustpdx_df["group"].astype(str).str.lower().unique())
+    groups = sorted(robustpdx_df["status"].astype(str).str.lower().unique())
     rows = []
     for synth_col, ref_col in _SHARED_FEATURES.items():
         if synth_col not in spatial_df.columns or ref_col not in robustpdx_df.columns:
             continue
         synth_vals = spatial_df[synth_col].dropna().to_numpy()
         for group in groups:
-            ref_vals = robustpdx_df.loc[robustpdx_df["group"].astype(str).str.lower() == group, ref_col].dropna().to_numpy()
+            ref_vals = robustpdx_df.loc[robustpdx_df["status"].astype(str).str.lower() == group, ref_col].dropna().to_numpy()
             comp = compare_two_distributions(synth_vals, ref_vals, "synthetic", f"robustpdx_{group}")
             comp["feature"] = synth_col
             comp["reference_group"] = group
@@ -144,8 +144,8 @@ def _make_comparison_plots(spatial_df: pd.DataFrame, robustpdx_df: pd.DataFrame,
 
         data, labels = [], []
         data.append(spatial_df[synth_col].dropna().to_numpy()); labels.append("Synthetic")
-        for group in sorted(robustpdx_df["group"].astype(str).unique()):
-            vals = robustpdx_df.loc[robustpdx_df["group"].astype(str) == group, ref_col].dropna().to_numpy()
+        for group in sorted(robustpdx_df["status"].astype(str).unique()):
+            vals = robustpdx_df.loc[robustpdx_df["status"].astype(str) == group, ref_col].dropna().to_numpy()
             data.append(vals); labels.append(f"RobustPDX {group}")
         ax_box.boxplot(data)
         ax_box.set_xticklabels(labels)
