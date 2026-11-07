@@ -100,8 +100,6 @@ TremorShield/
 │
 ├── 08_WEBSITE/
 │
-├── 99_ARCHIVE_REVIEW/
-│
 ├── docs/
 │
 ├── PROJECT_STRUCTURE.md
